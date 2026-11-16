@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pastas que o FileProvider pode "expor" para outros apps (câmera e galeria).
+     external-files-path = getExternalFilesDir(...) -->
+<paths>
+    <external-files-path name="fotos" path="Pictures/" />
+</paths>

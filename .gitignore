@@ -1,0 +1,31 @@
+# Gradle e build
+.gradle/
+/build/
+/app/build/
+/app/release/
+/captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# Configuração local da máquina (caminho do Android SDK)
+local.properties
+
+# Android Studio / IntelliJ: preferências de cada máquina
+.idea/
+*.iml
+
+# Pacotes gerados (APK/AAB são publicados como release, não no código)
+*.apk
+*.aab
+output-metadata.json
+
+# Chaves de assinatura: NUNCA versionar
+*.jks
+*.keystore
+keystore.properties
+
+# Sistema operacional e logs
+.DS_Store
+Thumbs.db
+*.log

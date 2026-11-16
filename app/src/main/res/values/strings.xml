@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Meus Lugares</string>
+    <string name="salvar_local">Salvar local</string>
+    <string name="novo_lugar">Novo lugar</string>
+    <string name="dica_nome">Nome do lugar</string>
+    <string name="dica_endereco">Endereço</string>
+    <string name="buscar_endereco">Buscar endereço de novo</string>
+    <string name="tirar_foto">Tirar foto</string>
+    <string name="salvar">Salvar</string>
+    <string name="foto_lugar">Foto do lugar</string>
+    <string name="aviso_aproximada">Localização aproximada: o pin pode ficar a algumas centenas de metros do lugar.</string>
+</resources>
