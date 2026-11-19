@@ -7,15 +7,12 @@ import android.provider.Settings;
 
 import androidx.appcompat.app.AlertDialog;
 
-/**
- * Diálogos usados no fluxo de permissões (aula de Permissões), compartilhados
- * entre as telas que pedem localização e câmera.
- */
+/** Diálogos de permissão usados pela tela do mapa e pela do formulário. */
 public final class Permissoes {
 
     private Permissoes() { }
 
-    /** Justificativa mostrada quando o usuário já negou uma vez. Se ele aceitar, pedimos de novo. */
+    /** Para quando o usuário já negou uma vez. */
     public static void mostrarExplicacao(Activity activity, String titulo, String mensagem,
                                          Runnable aoContinuar) {
         new AlertDialog.Builder(activity)
@@ -26,7 +23,7 @@ public final class Permissoes {
                 .show();
     }
 
-    /** Permissão negada de vez: só dá para liberar nas Configurações do app. */
+    /** Negada de vez: só pelas Configurações. */
     public static void mostrarDialogoConfiguracoes(Activity activity, String mensagem) {
         new AlertDialog.Builder(activity)
                 .setTitle("Permissão negada")

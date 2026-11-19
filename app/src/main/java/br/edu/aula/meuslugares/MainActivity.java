@@ -34,7 +34,10 @@ import org.osmdroid.config.Configuration;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
+import org.osmdroid.views.overlay.CopyrightOverlay;
+import org.osmdroid.views.overlay.FolderOverlay;
 import org.osmdroid.views.overlay.Marker;
+import org.osmdroid.views.overlay.Polygon;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -43,16 +46,18 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    // Centro inicial do mapa quando ainda não há lugares salvos (Salvador)
+    // Salvador, enquanto não há lugar salvo
     private static final GeoPoint CENTRO_PADRAO = new GeoPoint(-12.9714, -38.5014);
 
+    private static final int COR_CIRCULO_BORDA = 0x991E88E5;
+    private static final int COR_CIRCULO_FUNDO = 0x221E88E5;
+
     private MapView mapa;
+    private FolderOverlay camadaLugares;
     private ExtendedFloatingActionButton btnSalvarLocal;
     private DBHelper dbHelper;
 
-    // ---------- Activity Result API ----------
-
-    // 1) Pede FINE e COARSE juntas: desde o Android 12 o usuário pode escolher "aproximada"
+    // FINE e COARSE juntas: no Android 12+ o usuário pode escolher "aproximada"
     private final ActivityResultLauncher<String[]> pedirLocalizacaoLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), resultado -> {
                 boolean precisa = Boolean.TRUE.equals(resultado.get(Manifest.permission.ACCESS_FINE_LOCATION));
@@ -61,7 +66,7 @@ public class MainActivity extends AppCompatActivity {
                 if (precisa || aproximada) {
                     obterLocalizacao();
                 } else if (!shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)) {
-                    // Negada e o sistema não mostra mais o diálogo: negada de vez
+                    // Negada de vez, o sistema não mostra mais o diálogo
                     Permissoes.mostrarDialogoConfiguracoes(this,
                             "Para salvar lugares, ative a permissão de localização nas Configurações do app.");
                 } else {
@@ -69,7 +74,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    // 2) Abre o formulário do novo lugar; ao voltar com RESULT_OK, recarrega os pins
     private final ActivityResultLauncher<Intent> novoLugarLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), resultado -> {
                 if (resultado.getResultCode() == RESULT_OK) {
@@ -81,7 +85,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // O osmdroid precisa ser configurado ANTES de inflar o MapView
+        // Tem que vir antes do setContentView, que infla o MapView
         configurarOsmdroid();
 
         WindowCompat.enableEdgeToEdge(getWindow());
@@ -96,9 +100,14 @@ public class MainActivity extends AppCompatActivity {
 
         mapa = findViewById(R.id.mapa);
         mapa.setTileSource(TileSourceFactory.MAPNIK);
-        mapa.setMultiTouchControls(true); // zoom com pinça
+        mapa.setMultiTouchControls(true);
         mapa.getController().setZoom(13.0);
         mapa.getController().setCenter(CENTRO_PADRAO);
+
+        camadaLugares = new FolderOverlay();
+        mapa.getOverlays().add(camadaLugares);
+        // Atribuição exigida pela política de tiles do OSM
+        mapa.getOverlays().add(new CopyrightOverlay(this));
 
         btnSalvarLocal = findViewById(R.id.btnSalvarLocal);
         btnSalvarLocal.setOnClickListener(v -> verificarPermissaoLocalizacao());
@@ -109,19 +118,17 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        mapa.onResume(); // obrigatório no osmdroid
+        mapa.onResume();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        mapa.onPause(); // obrigatório no osmdroid
+        mapa.onPause();
     }
 
-    /**
-     * O servidor de mapas do OpenStreetMap exige um "User-Agent" que identifique o app.
-     * O cache dos mapas fica na pasta privada do app, sem precisar de permissão de armazenamento.
-     */
+    // O servidor de tiles bloqueia o User-Agent padrão do osmdroid.
+    // Cache no getCacheDir() para não precisar de permissão de armazenamento.
     private void configurarOsmdroid() {
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", Context.MODE_PRIVATE));
         Configuration.getInstance().setUserAgentValue(getPackageName());
@@ -129,8 +136,6 @@ public class MainActivity extends AppCompatActivity {
         Configuration.getInstance().setOsmdroidBasePath(base);
         Configuration.getInstance().setOsmdroidTileCache(new File(base, "tiles"));
     }
-
-    // ==================== PERMISSÃO DE LOCALIZAÇÃO ====================
 
     private boolean tem(String permissao) {
         return ContextCompat.checkSelfPermission(this, permissao) == PackageManager.PERMISSION_GRANTED;
@@ -140,7 +145,6 @@ public class MainActivity extends AppCompatActivity {
         return tem(Manifest.permission.ACCESS_FINE_LOCATION) || tem(Manifest.permission.ACCESS_COARSE_LOCATION);
     }
 
-    /** Decide o que fazer quando o usuário toca em "Salvar local". */
     private void verificarPermissaoLocalizacao() {
         if (temLocalizacao()) {
             obterLocalizacao();
@@ -160,9 +164,6 @@ public class MainActivity extends AppCompatActivity {
                 Manifest.permission.ACCESS_COARSE_LOCATION});
     }
 
-    // ==================== GPS ====================
-
-    /** Pede UMA leitura da posição atual ao LocationManager do Android. */
     private void obterLocalizacao() {
         LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
@@ -198,16 +199,13 @@ public class MainActivity extends AppCompatActivity {
                         abrirFormulario(local, !precisa);
                     });
         } catch (SecurityException e) {
-            // A permissão foi revogada entre a verificação e o pedido
+            // Permissão revogada entre a checagem e o pedido
             mostrarBuscando(false);
             Toast.makeText(this, "Permissão de localização não concedida", Toast.LENGTH_SHORT).show();
         }
     }
 
-    /**
-     * Com localização precisa, o GPS é o mais exato. Com só a aproximada, usamos a rede
-     * (no Android 12+ o GPS também funciona, e o sistema arredonda a posição).
-     */
+    // Só com a aproximada vai pela rede; no Android 12+ o GPS também serve e o sistema arredonda
     private String escolherProvedor(LocationManager lm, boolean precisa) {
         List<String> candidatos = new ArrayList<>();
         if (precisa) {
@@ -243,17 +241,26 @@ public class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(this, LugarFormActivity.class);
         intent.putExtra(LugarFormActivity.EXTRA_LATITUDE, local.getLatitude());
         intent.putExtra(LugarFormActivity.EXTRA_LONGITUDE, local.getLongitude());
+        if (local.hasAccuracy()) {
+            intent.putExtra(LugarFormActivity.EXTRA_PRECISAO, (double) local.getAccuracy());
+        }
         intent.putExtra(LugarFormActivity.EXTRA_APROXIMADA, aproximada);
         novoLugarLauncher.launch(intent);
     }
 
-    // ==================== MAPA (READ) ====================
-
-    /** Lê todos os lugares do banco e desenha um pin para cada um. */
     private void carregarLugares(boolean centralizarNoMaisRecente) {
-        List<Lugar> lugares = dbHelper.listarTodos(); // READ
+        List<Lugar> lugares = dbHelper.listarTodos();
 
-        mapa.getOverlays().clear();
+        // getOverlays().clear() levaria junto a atribuição
+        camadaLugares.getItems().clear();
+
+        // Círculos antes, senão cobrem os pins
+        for (Lugar lugar : lugares) {
+            if (lugar.getPrecisao() != null && lugar.getPrecisao() > 0) {
+                camadaLugares.add(circuloPrecisao(lugar));
+            }
+        }
+
         for (Lugar lugar : lugares) {
             Marker pin = new Marker(mapa);
             pin.setPosition(new GeoPoint(lugar.getLatitude(), lugar.getLongitude()));
@@ -263,18 +270,40 @@ public class MainActivity extends AppCompatActivity {
                 mostrarDetalhes(lugar);
                 return true;
             });
-            mapa.getOverlays().add(pin);
+            camadaLugares.add(pin);
         }
         mapa.invalidate();
 
-        // A lista vem do mais recente para o mais antigo
         if (centralizarNoMaisRecente && !lugares.isEmpty()) {
             Lugar recente = lugares.get(0);
             mapa.getController().animateTo(new GeoPoint(recente.getLatitude(), recente.getLongitude()));
         }
     }
 
-    // ==================== DETALHES, UPDATE E DELETE ====================
+    private Polygon circuloPrecisao(Lugar lugar) {
+        GeoPoint centro = new GeoPoint(lugar.getLatitude(), lugar.getLongitude());
+        Polygon circulo = new Polygon(mapa);
+        circulo.setPoints(Polygon.pointsAsCircle(centro, lugar.getPrecisao()));
+        circulo.getFillPaint().setColor(COR_CIRCULO_FUNDO);
+        circulo.getOutlinePaint().setColor(COR_CIRCULO_BORDA);
+        circulo.getOutlinePaint().setStrokeWidth(2f);
+        circulo.setInfoWindow(null); // sem balão vazio ao tocar
+        return circulo;
+    }
+
+    // Última posição em cache, sem ligar o GPS. Pode estar velha ou nem existir.
+    private Location posicaoConhecida() {
+        if (!temLocalizacao()) return null;
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        Location maisRecente = null;
+        for (String provedor : lm.getProviders(true)) {
+            Location local = ultimaPosicaoConhecida(lm, provedor);
+            if (local != null && (maisRecente == null || local.getTime() > maisRecente.getTime())) {
+                maisRecente = local;
+            }
+        }
+        return maisRecente;
+    }
 
     private void mostrarDetalhes(Lugar lugar) {
         View view = getLayoutInflater().inflate(R.layout.dialog_lugar, null);
@@ -287,9 +316,23 @@ public class MainActivity extends AppCompatActivity {
         } else {
             imgFoto.setVisibility(View.GONE);
         }
-        String endereco = lugar.temEndereco() ? lugar.getEndereco() + "\n\n" : "";
-        txtInfo.setText(String.format(Locale.getDefault(), "%s%s\nLat: %.6f\nLng: %.6f",
-                endereco, lugar.getDataCriacao(), lugar.getLatitude(), lugar.getLongitude()));
+        StringBuilder info = new StringBuilder();
+        if (lugar.temEndereco()) info.append(lugar.getEndereco()).append("\n\n");
+        info.append(lugar.getDataCriacao());
+        info.append(String.format(Locale.getDefault(), "\nLat: %.6f\nLng: %.6f",
+                lugar.getLatitude(), lugar.getLongitude()));
+        if (lugar.getPrecisao() != null) {
+            info.append(String.format(Locale.getDefault(), "\nPrecisão: ± %.0f m", lugar.getPrecisao()));
+        }
+        Location aqui = posicaoConhecida();
+        if (aqui != null) {
+            double km = GeoUtils.distanciaKm(aqui.getLatitude(), aqui.getLongitude(),
+                    lugar.getLatitude(), lugar.getLongitude());
+            info.append("\nDistância de você: ")
+                    .append(GeoUtils.formatarDistancia(km, Locale.getDefault()))
+                    .append(" em linha reta");
+        }
+        txtInfo.setText(info);
 
         new AlertDialog.Builder(this)
                 .setTitle(lugar.getNome())
@@ -313,7 +356,7 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(this, "O nome não pode ficar vazio", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    dbHelper.atualizarNome(lugar.getId(), nome); // UPDATE
+                    dbHelper.atualizarNome(lugar.getId(), nome);
                     carregarLugares(false);
                 })
                 .setNegativeButton("Cancelar", null)
@@ -325,7 +368,7 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("Excluir")
                 .setMessage("Excluir \"" + lugar.getNome() + "\" e a foto?")
                 .setPositiveButton("Excluir", (d, w) -> {
-                    dbHelper.excluir(lugar.getId()); // DELETE
+                    dbHelper.excluir(lugar.getId());
                     if (lugar.temFoto()) {
                         File foto = new File(lugar.getCaminhoFoto());
                         if (foto.exists()) foto.delete();
@@ -336,7 +379,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** Abre a foto em tamanho real em outro app (galeria), como na aula de SQLite. */
     private void abrirFoto(Lugar lugar) {
         File arquivo = new File(lugar.getCaminhoFoto());
         if (!arquivo.exists()) {

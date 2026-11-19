@@ -36,20 +36,21 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Formulário do novo lugar: recebe a posição do GPS, pede o nome e tira a foto. */
 public class LugarFormActivity extends AppCompatActivity {
 
     public static final String EXTRA_LATITUDE = "latitude";
     public static final String EXTRA_LONGITUDE = "longitude";
+    public static final String EXTRA_PRECISAO = "precisao";
     public static final String EXTRA_APROXIMADA = "aproximada";
 
-    // Chaves para sobreviver à recriação da Activity enquanto a câmera está aberta
+    // A Activity pode ser recriada enquanto a câmera está aberta
     private static final String ESTADO_CAPTURA = "arquivoCaptura";
     private static final String ESTADO_FOTO = "caminhoFoto";
     private static final String ESTADO_ENDERECO_BUSCADO = "enderecoBuscado";
 
     private double latitude;
     private double longitude;
+    private Double precisao;
 
     private EditText edtNome;
     private EditText edtEndereco;
@@ -59,18 +60,14 @@ public class LugarFormActivity extends AppCompatActivity {
     private ImageView imgFoto;
     private DBHelper dbHelper;
 
-    private File arquivoCaptura; // arquivo que a câmera está preenchendo agora
-    private String caminhoFoto;  // foto já confirmada (null = sem foto)
+    private File arquivoCaptura; // o que a câmera está gravando agora
+    private String caminhoFoto;  // foto já aceita
     private boolean salvo = false;
     private boolean enderecoBuscado = false; // evita repetir o GET ao girar a tela
 
-    // Thread de fundo para a requisição HTTP e "carteiro" de volta para a thread da tela (aula de APIs)
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler handlerTela = new Handler(Looper.getMainLooper());
 
-    // ---------- Activity Result API ----------
-
-    // 1) Pede a permissão CAMERA (mesmo fluxo da aula de Permissões)
     private final ActivityResultLauncher<String> pedirCameraLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), concedida -> {
                 if (concedida) {
@@ -83,7 +80,6 @@ public class LugarFormActivity extends AppCompatActivity {
                 }
             });
 
-    // 2) Abre a câmera do sistema e grava a foto no arquivo indicado pela Uri (aula de SQLite)
     private final ActivityResultLauncher<Uri> tirarFotoLauncher =
             registerForActivityResult(new ActivityResultContracts.TakePicture(),
                     sucesso -> tratarResultadoFoto(Boolean.TRUE.equals(sucesso)));
@@ -104,6 +100,9 @@ public class LugarFormActivity extends AppCompatActivity {
 
         latitude = getIntent().getDoubleExtra(EXTRA_LATITUDE, 0);
         longitude = getIntent().getDoubleExtra(EXTRA_LONGITUDE, 0);
+        if (getIntent().hasExtra(EXTRA_PRECISAO)) {
+            precisao = getIntent().getDoubleExtra(EXTRA_PRECISAO, 0);
+        }
         boolean aproximada = getIntent().getBooleanExtra(EXTRA_APROXIMADA, false);
 
         TextView txtCoordenadas = findViewById(R.id.txtCoordenadas);
@@ -117,9 +116,11 @@ public class LugarFormActivity extends AppCompatActivity {
         Button btnFoto = findViewById(R.id.btnFoto);
         Button btnSalvar = findViewById(R.id.btnSalvar);
 
-        txtCoordenadas.setText(String.format(Locale.getDefault(),
-                "Lat: %.6f\nLng: %.6f", latitude, longitude));
-        // Usuário escolheu "aproximada": salvamos mesmo assim, mas avisamos
+        String coordenadas = String.format(Locale.getDefault(), "Lat: %.6f\nLng: %.6f", latitude, longitude);
+        if (precisao != null) {
+            coordenadas += String.format(Locale.getDefault(), "\nPrecisão: ± %.0f m", precisao);
+        }
+        txtCoordenadas.setText(coordenadas);
         txtAviso.setVisibility(aproximada ? View.VISIBLE : View.GONE);
 
         if (savedInstanceState != null) {
@@ -131,7 +132,6 @@ public class LugarFormActivity extends AppCompatActivity {
         mostrarFoto();
 
         btnBuscarEndereco.setOnClickListener(v -> buscarEndereco());
-        // Busca o endereço automaticamente ao abrir (só uma vez)
         if (!enderecoBuscado) buscarEndereco();
 
         btnFoto.setOnClickListener(v -> verificarPermissaoCamera());
@@ -149,14 +149,11 @@ public class LugarFormActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        executor.shutdownNow(); // encerra a thread de fundo
-        // Saiu sem salvar (voltar): apaga a foto para não deixar lixo na pasta
+        executor.shutdownNow();
+        // Voltou sem salvar: a foto ficaria órfã na pasta
         if (isFinishing() && !salvo) apagar(caminhoFoto);
     }
 
-    // ==================== ENDEREÇO (API NOMINATIM) ====================
-
-    /** Faz o GET na thread de fundo e mostra o resultado na thread da tela. */
     private void buscarEndereco() {
         mostrarBuscandoEndereco(true);
 
@@ -173,14 +170,14 @@ public class LugarFormActivity extends AppCompatActivity {
                 erro = "Resposta inválida do servidor de endereços.";
             }
 
-            String resultado = endereco;   // cópias "effectively final" para a lambda
+            String resultado = endereco; // a lambda precisa de variável final
             String mensagemErro = erro;
             handlerTela.post(() -> {
-                if (isFinishing() || isDestroyed()) return; // usuário já saiu da tela
+                if (isFinishing() || isDestroyed()) return;
                 mostrarBuscandoEndereco(false);
                 if (resultado != null) {
                     enderecoBuscado = true;
-                    // Não apaga o que o usuário já digitou enquanto a busca rodava
+                    // Não sobrescreve o que o usuário digitou durante a busca
                     if (edtEndereco.getText().toString().trim().isEmpty()) {
                         edtEndereco.setText(resultado);
                     }
@@ -204,8 +201,6 @@ public class LugarFormActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== PERMISSÃO DA CÂMERA ====================
-
     private boolean temPermissaoCamera() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
@@ -223,8 +218,6 @@ public class LugarFormActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== FOTO ====================
-
     private void abrirCamera() {
         try {
             arquivoCaptura = criarArquivoFoto();
@@ -236,7 +229,7 @@ public class LugarFormActivity extends AppCompatActivity {
         }
     }
 
-    /** Cria o arquivo na pasta PRIVADA do app (não precisa de permissão de armazenamento). */
+    // Pasta do próprio app: dispensa permissão de armazenamento
     private File criarArquivoFoto() {
         String carimbo = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         File pasta = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
@@ -247,11 +240,11 @@ public class LugarFormActivity extends AppCompatActivity {
         if (arquivoCaptura == null) return;
 
         if (sucesso && arquivoCaptura.exists() && arquivoCaptura.length() > 0) {
-            apagar(caminhoFoto); // tirou outra foto: descarta a anterior
+            apagar(caminhoFoto); // a anterior, se houver
             caminhoFoto = arquivoCaptura.getAbsolutePath();
             mostrarFoto();
         } else {
-            apagar(arquivoCaptura.getAbsolutePath()); // cancelou: apaga o arquivo vazio
+            apagar(arquivoCaptura.getAbsolutePath()); // cancelou, ficou vazio
             Toast.makeText(this, "Foto cancelada", Toast.LENGTH_SHORT).show();
         }
         arquivoCaptura = null;
@@ -272,8 +265,6 @@ public class LugarFormActivity extends AppCompatActivity {
         if (arquivo.exists()) arquivo.delete();
     }
 
-    // ==================== SALVAR (CREATE) ====================
-
     private void salvar() {
         String nome = edtNome.getText().toString().trim();
         if (nome.isEmpty()) {
@@ -283,8 +274,8 @@ public class LugarFormActivity extends AppCompatActivity {
 
         String data = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date());
         String endereco = edtEndereco.getText().toString().trim();
-        long id = dbHelper.inserir(new Lugar(nome, latitude, longitude,
-                endereco.isEmpty() ? null : endereco, caminhoFoto, data)); // CREATE
+        long id = dbHelper.inserir(new Lugar(nome, latitude, longitude, precisao,
+                endereco.isEmpty() ? null : endereco, caminhoFoto, data));
 
         if (id == -1) {
             Toast.makeText(this, "Erro ao salvar o lugar", Toast.LENGTH_SHORT).show();

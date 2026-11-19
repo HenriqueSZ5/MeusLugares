@@ -1,34 +1,30 @@
 package br.edu.aula.meuslugares;
 
-/**
- * Classe modelo que representa UMA linha da tabela "lugares".
- * Cada atributo corresponde a uma coluna do banco.
- */
 public class Lugar {
 
-    private long id;              // chave primária (gerada pelo SQLite)
-    private String nome;          // nome digitado pelo usuário
+    private long id;
+    private String nome;
     private final double latitude;
     private final double longitude;
-    private final String endereco;    // vindo da API Nominatim (pode ser null)
-    private final String caminhoFoto; // caminho absoluto da foto (pode ser null)
-    private final String dataCriacao; // data/hora em que o lugar foi salvo
+    private final Double precisao; // metros, null se o aparelho não informou
+    private final String endereco;
+    private final String caminhoFoto;
+    private final String dataCriacao;
 
-    // Construtor usado ao INSERIR (o id ainda não existe)
-    public Lugar(String nome, double latitude, double longitude, String endereco,
-                 String caminhoFoto, String dataCriacao) {
+    public Lugar(String nome, double latitude, double longitude, Double precisao,
+                 String endereco, String caminhoFoto, String dataCriacao) {
         this.nome = nome;
         this.latitude = latitude;
         this.longitude = longitude;
+        this.precisao = precisao;
         this.endereco = endereco;
         this.caminhoFoto = caminhoFoto;
         this.dataCriacao = dataCriacao;
     }
 
-    // Construtor usado ao LER do banco (o id já existe)
-    public Lugar(long id, String nome, double latitude, double longitude, String endereco,
-                 String caminhoFoto, String dataCriacao) {
-        this(nome, latitude, longitude, endereco, caminhoFoto, dataCriacao);
+    public Lugar(long id, String nome, double latitude, double longitude, Double precisao,
+                 String endereco, String caminhoFoto, String dataCriacao) {
+        this(nome, latitude, longitude, precisao, endereco, caminhoFoto, dataCriacao);
         this.id = id;
     }
 
@@ -44,6 +40,7 @@ public class Lugar {
     public String getNome() { return nome; }
     public double getLatitude() { return latitude; }
     public double getLongitude() { return longitude; }
+    public Double getPrecisao() { return precisao; }
     public String getEndereco() { return endereco; }
     public String getCaminhoFoto() { return caminhoFoto; }
     public String getDataCriacao() { return dataCriacao; }

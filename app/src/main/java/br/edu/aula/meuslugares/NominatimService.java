@@ -7,6 +7,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.InterruptedIOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -15,38 +16,39 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Conversa com a API Nominatim (OpenStreetMap) para transformar uma coordenada
- * em endereço ("geocodificação reversa"). Mesmo padrão do ViaCepService da aula de APIs.
- *
- * Regras de uso do servidor público: no máximo 1 requisição por segundo e
- * um User-Agent que identifique o app.
+ * Geocodificação reversa no Nominatim, no mesmo molde do ViaCepService.
+ * O servidor público pede no máximo 1 consulta por segundo e User-Agent próprio.
  */
 public class NominatimService {
 
     private static final String URL_BASE = "https://nominatim.openstreetmap.org/reverse";
     private static final String USER_AGENT = "MeusLugares/1.0 (app academico Android; br.edu.aula.meuslugares)";
+    private static final long INTERVALO_MINIMO_MS = 1100;
 
-    /** Erros "de negócio": a API respondeu, mas não há endereço para devolver. */
+    private static long ultimaConsultaMs = 0;
+
+    /** A API respondeu, mas sem endereço utilizável. */
     public static class EnderecoException extends Exception {
         public EnderecoException(String mensagem) {
             super(mensagem);
         }
     }
 
-    /** Faz o GET e devolve o endereço já formatado em uma linha. Rodar SEMPRE em thread de fundo. */
+    /** Faz rede: não chamar na thread da tela. */
     public static String buscarEndereco(double latitude, double longitude)
             throws IOException, JSONException, EnderecoException {
 
-        // Locale.US garante ponto decimal (em pt-BR seria vírgula e a URL ficaria errada)
+        // Locale.US por causa da vírgula decimal do pt-BR
         URL url = new URL(String.format(Locale.US,
                 "%s?format=jsonv2&lat=%.6f&lon=%.6f&zoom=18&addressdetails=1&accept-language=pt-BR",
                 URL_BASE, latitude, longitude));
 
+        aguardarIntervalo();
         HttpURLConnection conexao = (HttpURLConnection) url.openConnection();
         try {
             conexao.setRequestMethod("GET");
             conexao.setRequestProperty("Accept", "application/json");
-            conexao.setRequestProperty("User-Agent", USER_AGENT); // exigido pelo Nominatim
+            conexao.setRequestProperty("User-Agent", USER_AGENT);
             conexao.setConnectTimeout(10000);
             conexao.setReadTimeout(10000);
 
@@ -60,7 +62,7 @@ public class NominatimService {
 
             JSONObject json = new JSONObject(lerCorpo(conexao.getInputStream()));
 
-            // Coordenada no meio do mar, por exemplo: status 200 com o campo "error"
+            // Ex.: ponto no mar volta 200 com "error"
             if (json.has("error")) {
                 throw new EnderecoException("Nenhum endereço encontrado para esta posição");
             }
@@ -77,7 +79,22 @@ public class NominatimService {
         }
     }
 
-    /** Monta "Rua, número - Bairro, Cidade - UF, CEP" com os campos que vierem. */
+    // Segura o "Buscar endereço de novo" tocado várias vezes seguidas
+    private static synchronized void aguardarIntervalo() throws InterruptedIOException {
+        long espera = ultimaConsultaMs + INTERVALO_MINIMO_MS - System.currentTimeMillis();
+        if (espera > 0) {
+            try {
+                Thread.sleep(espera);
+            } catch (InterruptedException e) {
+                // shutdownNow() do formulário
+                Thread.currentThread().interrupt();
+                throw new InterruptedIOException("Consulta cancelada");
+            }
+        }
+        ultimaConsultaMs = System.currentTimeMillis();
+    }
+
+    /** "Rua, número, Bairro, Cidade - UF, CEP", só com o que vier preenchido. */
     private static String formatar(JSONObject a) {
         String rua = primeiro(a, "road", "pedestrian", "footway", "square");
         String numero = a.optString("house_number");
@@ -94,7 +111,7 @@ public class NominatimService {
         return String.join(", ", partes);
     }
 
-    /** Devolve o primeiro campo não vazio da lista (o nome do campo varia conforme o lugar). */
+    // O nome do campo muda conforme o tipo de lugar (road, pedestrian...)
     private static String primeiro(JSONObject json, String... chaves) {
         for (String chave : chaves) {
             String valor = json.optString(chave);
@@ -103,7 +120,7 @@ public class NominatimService {
         return "";
     }
 
-    /** O Nominatim manda o estado por extenso ("Bahia") e o código "BR-BA"; usamos a sigla. */
+    // "BR-BA" vira "BA"
     private static String siglaUf(JSONObject a) {
         String codigo = a.optString("ISO3166-2-lvl4");
         if (codigo.startsWith("BR-")) return codigo.substring(3);

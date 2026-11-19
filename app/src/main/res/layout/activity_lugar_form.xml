@@ -19,7 +19,6 @@
             android:textSize="22sp"
             android:textStyle="bold" />
 
-        <!-- Posição recebida do GPS -->
         <TextView
             android:id="@+id/txtCoordenadas"
             android:layout_width="match_parent"
@@ -28,7 +27,7 @@
             android:textIsSelectable="true"
             android:textSize="14sp" />
 
-        <!-- Só aparece quando o usuário escolheu localização aproximada -->
+        <!-- Só com localização aproximada -->
         <TextView
             android:id="@+id/txtAviso"
             android:layout_width="match_parent"
@@ -38,7 +37,6 @@
             android:textColor="#B26A00"
             android:visibility="gone" />
 
-        <!-- Endereço preenchido pela API Nominatim (o usuário pode corrigir) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -63,7 +61,6 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- Mensagem de erro da consulta + botão para tentar de novo -->
         <TextView
             android:id="@+id/txtStatusEndereco"
             android:layout_width="match_parent"
